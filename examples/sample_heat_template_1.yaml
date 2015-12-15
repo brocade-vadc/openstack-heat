@@ -1,0 +1,129 @@
+heat_template_version: 2014-10-16
+
+description: Sample template for deploying a Brocade vTM Virtual Appliance and registering it with Brocade Services Director
+
+parameters:
+  admin_username:
+    type: string
+    label: Admin Username
+    description: Username of vTM administrator.
+    default: admin
+
+  admin_password:
+    type: string
+    label: Admin Password
+    description: Password for admin user.
+    default: password
+#    hidden: true
+
+  image:
+    type: string
+    label: vTM Image
+    default: vtm
+    description: vTM image to use.  Typically, there will be one image per vTM version.
+
+  flavor:
+    type: string
+    label: Instance Flavor
+    default: m1.small
+    description: Flavor to use for vTM instances.
+
+  data_network:
+    type: string
+    label: Data Network
+    description: Neutron ID of the tenant data network
+
+  mgmt_network:
+    type: string
+    label: Management Network
+    description: Neutron ID of the management network
+
+  hostname:
+    type: string
+    label: vTM Hostname
+    description: Hostname/FQDN for vTM instance
+
+  vtm_bandwidth:
+    type: string
+    label: Bandwidth to allocate to vTM
+
+  feature_pack:
+    type: string
+    label: Feature Pack for instance
+
+
+resources:
+
+  mgmt_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: "vTM Management Port"
+      rules:
+        - remote_ip_prefix: <SERVICES_DIRECTOR_IP/NETMASK>
+          direction: ingress 
+          protocol: tcp
+          port_range_min: 9070 
+          port_range_max: 9070
+        - remote_ip_prefix: 0.0.0.0/0
+          direction: egress 
+          protocol: tcp
+          port_range_min: 1 
+          port_range_max: 65535
+
+  data_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: data_network }
+
+  mgmt_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: mgmt_network }
+      security_groups: 
+        - { get_resource: mgmt_security_group }
+
+  user_data:
+    type: OS::Heat::CloudConfig
+    properties:
+      cloud_config:
+        write_files:
+          - content: 
+              str_replace:
+                template: '{"data_ip": "$DATA_IP/24", "mgmt_ip": "$MGMT_IP/24", "hostname": "$HOSTNAME", "password": "$PASSWORD"}'
+                params:
+                  $DATA_IP: { get_attr: [ data_port, fixed_ips, 0, ip_address ] }
+                  $MGMT_IP: { get_attr: [ mgmt_port, fixed_ips, 0, ip_address ] }
+                  $HOSTNAME: { get_param: hostname }
+                  $PASSWORD: { get_param: admin_password }
+            path: /root/config_data
+          - encoding: b64
+            content: IyEvdXNyL2Jpbi9lbnYgcHl0aG9uCiNDb3B5cmlnaHQgMjAxNCBCcm9jYWRlIENvbW11bmljYXRpb25zIFN5c3RlbXMsIEluYy4gIEFsbCByaWdodHMgcmVzZXJ2ZWQuCgppbXBvcnQgb3MKaW1wb3J0IGpzb24KaW1wb3J0IHNvY2tldApmcm9tIHN0cnVjdCBpbXBvcnQgcGFjawpmcm9tIHN1YnByb2Nlc3MgaW1wb3J0IFBvcGVuLCBQSVBFLCBTVERPVVQsIGNhbGwKCmNsYXNzIENvbmZpZ0ZpbGUoZGljdCk6CiAgICBkZWYgX19pbml0X18oc2VsZiwgbmFtZSwgcGF0aCk6CiAgICAgICAgc2VsZi5maWxlbmFtZSA9ICIlcy8lcyIgJSAocGF0aCwgbmFtZSkKICAgICAgICBzZWxmLl9nZXRfY3VycmVudF9rZXlzKCkKCiAgICBkZWYgYXBwbHkoc2VsZik6CiAgICAgICAgd2l0aCBvcGVuKHNlbGYuZmlsZW5hbWUsICJ3IikgYXMgY29uZmlnX2ZpbGU6CiAgICAgICAgICAgIGZvciBrZXksIHZhbHVlIGluIHNlbGYuaXRlcml0ZW1zKCk6CiAgICAgICAgICAgICAgICBjb25maWdfZmlsZS53cml0ZSgiJXNcdCVzXG4iICUgKGtleSwgdmFsdWUpKQoKICAgIGRlZiBfZ2V0X2N1cnJlbnRfa2V5cyhzZWxmKToKICAgICAgICB3aXRoIG9wZW4oc2VsZi5maWxlbmFtZSkgYXMgY29uZmlnX2ZpbGU6CiAgICAgICAgICAgIGZvciBsaW5lIGluIGNvbmZpZ19maWxlOgogICAgICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgICAgIGJpdHMgPSBsaW5lLnNwbGl0KCkKICAgICAgICAgICAgICAgICAgICBzZWxmW2JpdHNbMF1dID0gIiAiLmpvaW4oYml0c1sxOl0pCiAgICAgICAgICAgICAgICBleGNlcHQ6CiAgICAgICAgICAgICAgICAgICAgcGFzcwogICAgICAgIAoKZGVmIGdldF9pcChjaWRyKToKICAgIHJldHVybiBjaWRyLnNwbGl0KCIvIilbMF0KCgpkZWYgZ2V0X25ldG1hc2soY2lkcik6CiAgICBtYXNrID0gaW50KGNpZHIuc3BsaXQoIi8iKVsxXSkKICAgIGJpdHMgPSAweGZmZmZmZmZmIF4gKDEgPDwgMzIgLSBtYXNrKSAtIDEKICAgIHJldHVybiBzb2NrZXQuaW5ldF9udG9hKHBhY2soJz5JJywgYml0cykpCgoKZGVmIG1haW4oKToKICAgIFpFVVNIT01FID0gb3MuZW52aXJvbi5nZXQoJ1pFVVNIT01FJywgJy9vcHQvemV1cycpCiAgICBjYWxsKCIlcy9zdG9wLXpldXMiICUgWkVVU0hPTUUpCiAgICB3aXRoIG9wZW4oIi9yb290L2NvbmZpZ19kYXRhIikgYXMgY29uZmlnX2RyaXZlOgogICAgICAgIHVzZXJfZGF0YSA9IGpzb24ubG9hZHMoY29uZmlnX2RyaXZlLnJlYWQoKSkKICAgIGdsb2JhbF9jb25maWcgPSBDb25maWdGaWxlKCdnbG9iYWwuY2ZnJywgIiVzL3p4dG0iICUgWkVVU0hPTUUpCiAgICBwYXNzd29yZF9wcm9jID0gUG9wZW4oCiAgICAgICAgWyd6LXJlc2V0LXBhc3N3b3JkJ10sIAogICAgICAgIHN0ZG91dD1QSVBFLCBzdGRpbj1QSVBFLCBzdGRlcnI9U1RET1VUCiAgICApCiAgICBwYXNzd29yZF9wcm9jLmNvbW11bmljYXRlKGlucHV0PSIlc1xuJXMiICUgKAogICAgICAgIHVzZXJfZGF0YVsicGFzc3dvcmQiXSwgdXNlcl9kYXRhWyJwYXNzd29yZCJdCiAgICApKQogICAgZ2xvYmFsX2NvbmZpZ1siZGV2ZWxvcGVyX21vZGVfYWNjZXB0ZWQiXSA9ICJZZXMiCiAgICBnbG9iYWxfY29uZmlnWyJhcHBsaWFuY2UhbGljZW5jZV9hZ3JlZWQiXSA9ICJZZXMiCiAgICBnbG9iYWxfY29uZmlnWyJhcHBsaWFuY2UhaG9zdG5hbWUiXSA9IHVzZXJfZGF0YVsiaG9zdG5hbWUiXQogICAgZ2xvYmFsX2NvbmZpZ1siYXBwbGlhbmNlIWdhdGV3YXkiXSA9ICIxMC4wLjAuMSIKICAgIGdsb2JhbF9jb25maWdbImFwcGxpYW5jZSFob3N0cyElcyIgJSB1c2VyX2RhdGFbImhvc3RuYW1lIl1dID0gXAogICAgICAgIGdldF9pcCh1c2VyX2RhdGFbIm1nbXRfaXAiXSkKICAgIGdsb2JhbF9jb25maWdbImFwcGxpYW5jZSFob3N0cyFzc2MiXSA9ICIxMC4xMDAuMC4zNCIKICAgIGdsb2JhbF9jb25maWdbImFwcGxpYW5jZSFpZiFldGgwIWF1dG9uZWciXSA9ICJZZXMiCiAgICBnbG9iYWxfY29uZmlnWyJhcHBsaWFuY2UhaWYhZXRoMCFtdHUiXSA9ICIxNDU0IgogICAgZ2xvYmFsX2NvbmZpZ1siYXBwbGlhbmNlIWlwIWV0aDAhaXNleHRlcm5hbCJdID0iTm8iCiAgICBnbG9iYWxfY29uZmlnWyJhcHBsaWFuY2UhaXAhZXRoMCFhZGRyIl0gPSBnZXRfaXAodXNlcl9kYXRhWyJkYXRhX2lwIl0pCiAgICBnbG9iYWxfY29uZmlnWyJhcHBsaWFuY2UhaXAhZXRoMCFtYXNrIl0gPSBnZXRfbmV0bWFzayh1c2VyX2RhdGFbImRhdGFfaXAiXSkKICAgIGdsb2JhbF9jb25maWdbImFwcGxpYW5jZSFpZiFldGgxIWF1dG9uZWciXSA9ICJZZXMiCiAgICBnbG9iYWxfY29uZmlnWyJhcHBsaWFuY2UhaWYhZXRoMSFtdHUiXSA9ICIxNDU0IgogICAgZ2xvYmFsX2NvbmZpZ1siYXBwbGlhbmNlIWlwIWV0aDEhaXNleHRlcm5hbCJdID0iTm8iCiAgICBnbG9iYWxfY29uZmlnWyJhcHBsaWFuY2UhaXAhZXRoMSFhZGRyIl0gPSBnZXRfaXAodXNlcl9kYXRhWyJtZ210X2lwIl0pCiAgICBnbG9iYWxfY29uZmlnWyJhcHBsaWFuY2UhaXAhZXRoMSFtYXNrIl0gPSBnZXRfbmV0bWFzayh1c2VyX2RhdGFbIm1nbXRfaXAiXSkKICAgIGdsb2JhbF9jb25maWcuYXBwbHkoKQogICAgb3MucmVtb3ZlKCIlcy96eHRtL2dsb2JhbC5jZmciICUgWkVVU0hPTUUpCiAgICBvcy5yZW5hbWUoCiAgICAgICAgIiVzL3p4dG0vY29uZi96eHRtcy8obm9uZSkiICUgWkVVU0hPTUUsIAogICAgICAgICIlcy96eHRtL2NvbmYvenh0bXMvJXMiICUgKFpFVVNIT01FLCB1c2VyX2RhdGFbJ2hvc3RuYW1lJ10pCiAgICApCiAgICBvcy5zeW1saW5rKAogICAgICAgICIlcy96eHRtL2NvbmYvenh0bXMvJXMiICUgKFpFVVNIT01FLCB1c2VyX2RhdGFbJ2hvc3RuYW1lJ10pLCAKICAgICAgICAiJXMvenh0bS9nbG9iYWwuY2ZnIiAlIFpFVVNIT01FCiAgICApCiAgICBjYWxsKFsgIiVzL3p4dG0vYmluL3N5c2NvbmZpZyIgJSBaRVVTSE9NRSwgIi0tYXBwbHkiIF0pCiAgICBjYWxsKCIlcy9zdGFydC16ZXVzIiAlIFpFVVNIT01FKQogICAgemNsaSA9IFBvcGVuKAogICAgICAgIFsiJXMvenh0bS9iaW4vemNsaSIgJSBaRVVTSE9NRV0sCiAgICAgICAgc3Rkb3V0PVBJUEUsIHN0ZGluPVBJUEUsIHN0ZGVycj1TVERPVVQKICAgICkKICAgIHpjbGkuY29tbXVuaWNhdGUoaW5wdXQ9IlN5c3RlbS5NYW5hZ2VtZW50LnJlZ2VuZXJhdGVVVUlEIikKICAgIHpjbGkgPSBQb3BlbigKICAgICAgICBbIiVzL3p4dG0vYmluL3pjbGkiICUgWkVVU0hPTUVdLAogICAgICAgIHN0ZG91dD1QSVBFLCBzdGRpbj1QSVBFLCBzdGRlcnI9U1RET1VUCiAgICApCiAgICB6Y2xpLmNvbW11bmljYXRlKGlucHV0PSJHbG9iYWxTZXR0aW5ncy5zZXRSRVNURW5hYmxlZCB0cnVlIikKCgppZiBfX25hbWVfXyA9PSAiX19tYWluX18iOgogICAgbWFpbigpCg==
+            path: /root/configure.py
+        runcmd:
+          - [ "python", "/root/configure.py" ]
+
+  traffic_manager:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: hostname }
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      user_data_format: RAW
+      user_data: { get_resource: user_data }
+      networks:
+        - port: { get_resource: data_port }
+        - port: { get_resource: mgmt_port }
+      config_drive: true
+    depends_on: [ data_port, mgmt_port ]
+
+  instance_record:
+    type: Brocade::ServicesDirector::Instance
+    properties:
+        username: { get_param: admin_username }
+        password: { get_param: admin_password }
+        hostname: { get_param: hostname }
+        server_id: { get_resource: traffic_manager }
+        mgmt_ip: { get_attr: [ mgmt_port, fixed_ips, 0, ip_address ] }
+        bandwidth: { get_param: vtm_bandwidth }
+        feature_pack: { get_param: feature_pack }
+    depends_on: [ traffic_manager ]
